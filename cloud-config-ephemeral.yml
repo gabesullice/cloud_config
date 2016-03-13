@@ -1,37 +1,67 @@
 #cloud-config
 
 coreos:
+
   etcd2:
     # generate a new token for each unique cluster from https://discovery.etcd.io/new?size=3
-    discovery: "https://discovery.etcd.io/54fff7653338227131d8c87f716e1262"
+    discovery: "https://discovery.etcd.io/d7adac2de99f8821485c27ab7df18224"
     # multi-region and multi-cloud deployments need to use $public_ipv4
-    advertise-client-urls: "http://$public_ipv4:2379"
+    advertise-client-urls: "http://$private_ipv4:2379,http://$private_ipv4:4001"
     initial-advertise-peer-urls: "http://$private_ipv4:2380"
     # listen on both the official ports and the legacy ports
     # legacy ports can be omitted if your application doesn't depend on them
     listen-client-urls: "http://0.0.0.0:2379,http://0.0.0.0:4001"
-    listen-peer-urls: "http://$private_ipv4:2380,http://$private_ipv4:7001"
+    # listen-peer-urls: "http://$private_ipv4:2380,http://$private_ipv4:7001"
+    listen-peer-urls: "http://$private_ipv4:2380"
+
   fleet:
     public-ip: "$private_ipv4"
-    metadata: "type=ephemeral"
+    metadata: "ephemeral=true"
+
+  flannel:
+    interface: "eth1"
+
   update:
     reboot-strategy: best-effort
     group: stable
+
   units:
-    - name: "etcd.service"
+    - name: "etcd2.service"
       command: "start"
     - name: "fleet.service"
       command: "start"
+    - name: "flanneld.service"
+      drop-ins:
+        - name: "50-network-config.conf"
+          content: |
+            [Service]
+            ExecStartPre=/usr/bin/etcdctl set /coreos.com/network/config '{ "Network": "10.1.0.0/16" }'
+      command: start
+    #    - name: "docker.service"
+    #      drop-ins:
+    #        - name: "40-after-flannel.conf"
+    #          content: |
+    #            [Unit]
+    #            After=flanneld.service
+    #            Requires=flanneld.service
+    #        - name: "50-subnet-config.conf"
+    #          content: |
+    #            [Service]
+    #            EnvironmentFile=/run/flannel/subnet.env
+    #      command: start
+
 ssh_authorized_keys:
   - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDp06/jzDQHynEt7swNMdKxjxUZgUdCzJTGGY3xE7aAF0ntVkRP/vMH7aEjeOeTy4lM6maujiFMLFU18V/L96bLb3GDSHeQkXp2tU/2EGGevzfVbkMgOMmn7pSIo8J/vbiY9hIYqkEJ7BUXMJjiDt4eEGiUwjrsA+pNIIgTBZ+PnqLjFW7Hx7fWhAI3H22PiLFbVHeUPvUWvvULYFsRdFjzKolsqDuRl74ldNVKJRr9wROw9vPbxCCTQxZG0tQC1BKubeGz4FfI7bp/E8NP/kc5hMMzIbDZSPKfE38s7MepTePLbb85MGXWqSAjIWt0NLJRuDS83TeQbvkAY+gg08DUpc/uMW/jdG0mLktdbobmDJfTZOVKT3iCc9kfCrxYB0cmM8ZQ8aM+uVCt4tTEW/pU8gERnLMYuv72ItPyyGO7db4QN86Jddtv75GvIBVSZpQZ0BBMpju2mLH+cw2Q9oTLX7Gv9ArRvV+uKo0lBqrcrc6usex3F4MCgdv7L1y5PFqX7NYdTB4b82OL0MKboBDHV58sxmZia23P9yBPtG9YDdrdTKKE2EJrStXIa7e761sJ6t5HImDJBwguONGkwEcjaBS7ALv+QAAlh8djcDapmaWyYYJ5WYaFiANMcsqiewj8FCaPjsFL6ROzFubNNjPUS2jnnN/NxUNF1gVNc2r6TQ== gabriel+slatebox@sullice.com"
+
 users:
   - name: "gabe"
-    groups:
-      - "sudo"
-      - "docker"
     ssh-authorized-keys:
       - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDp06/jzDQHynEt7swNMdKxjxUZgUdCzJTGGY3xE7aAF0ntVkRP/vMH7aEjeOeTy4lM6maujiFMLFU18V/L96bLb3GDSHeQkXp2tU/2EGGevzfVbkMgOMmn7pSIo8J/vbiY9hIYqkEJ7BUXMJjiDt4eEGiUwjrsA+pNIIgTBZ+PnqLjFW7Hx7fWhAI3H22PiLFbVHeUPvUWvvULYFsRdFjzKolsqDuRl74ldNVKJRr9wROw9vPbxCCTQxZG0tQC1BKubeGz4FfI7bp/E8NP/kc5hMMzIbDZSPKfE38s7MepTePLbb85MGXWqSAjIWt0NLJRuDS83TeQbvkAY+gg08DUpc/uMW/jdG0mLktdbobmDJfTZOVKT3iCc9kfCrxYB0cmM8ZQ8aM+uVCt4tTEW/pU8gERnLMYuv72ItPyyGO7db4QN86Jddtv75GvIBVSZpQZ0BBMpju2mLH+cw2Q9oTLX7Gv9ArRvV+uKo0lBqrcrc6usex3F4MCgdv7L1y5PFqX7NYdTB4b82OL0MKboBDHV58sxmZia23P9yBPtG9YDdrdTKKE2EJrStXIa7e761sJ6t5HImDJBwguONGkwEcjaBS7ALv+QAAlh8djcDapmaWyYYJ5WYaFiANMcsqiewj8FCaPjsFL6ROzFubNNjPUS2jnnN/NxUNF1gVNc2r6TQ== gabriel+slatebox@sullice.com"
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    groups:
+      - "sudo"
     shell: "/bin/bash"
+
 write_files:
   - path: "/home/gabe/.bashrc"
     permissions: "0700"
