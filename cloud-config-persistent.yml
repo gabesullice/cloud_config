@@ -1,25 +1,38 @@
 #cloud-config
 
 coreos:
-
   etcd2:
     # generate a new token for each unique cluster from https://discovery.etcd.io/new?size=3
-    discovery: "https://discovery.etcd.io/d7adac2de99f8821485c27ab7df18224"
+    discovery: "https://discovery.etcd.io/2e790b5cd7c288e51eb6ae00b20a0f71"
     # multi-region and multi-cloud deployments need to use $public_ipv4
-    advertise-client-urls: "http://$private_ipv4:2379,http://$private_ipv4:4001"
-    initial-advertise-peer-urls: "http://$private_ipv4:2380"
+    advertise-client-urls: "https://$private_ipv4:2379,https://$private_ipv4:4001"
+    initial-advertise-peer-urls: "https://$private_ipv4:2380"
     # listen on both the official ports and the legacy ports
     # legacy ports can be omitted if your application doesn't depend on them
-    listen-client-urls: "http://0.0.0.0:2379,http://0.0.0.0:4001"
+    listen-client-urls: "https://0.0.0.0:2379,https://0.0.0.0:4001"
     # listen-peer-urls: "http://$private_ipv4:2380,http://$private_ipv4:7001"
-    listen-peer-urls: "http://$private_ipv4:2380"
+    listen-peer-urls: "https://$private_ipv4:2380"
 
   fleet:
+    etcd_servers: "https://$private_ipv4:4001"
+    etcd_cafile: "/home/core/ca.pem"
+    etcd_certfile: "/home/core/coreos.pem"
+    etcd_keyfile: "/home/core/coreos-key.pem"
     public-ip: "$private_ipv4"
     metadata: "ephemeral=false"
 
   flannel:
     interface: "eth1"
+    etcd_endpoints: "https://$private_ipv4:4001"
+    etcd_cafile: "/home/core/ca.pem"
+    etcd_certfile: "/home/core/coreos.pem"
+    etcd_keyfile: "/home/core/coreos-key.pem"
+
+  locksmith:
+    endpoint: "https://$private_ipv4:4001"
+    etcd_cafile: "/home/core/ca.pem"
+    etcd_certfile: "/home/core/coreos.pem"
+    etcd_keyfile: "/home/core/coreos-key.pem"
 
   update:
     reboot-strategy: off
@@ -28,34 +41,43 @@ coreos:
   units:
     - name: "etcd2.service"
       command: "start"
-    - name: "fleet.service"
-      command: "start"
-    - name: flanneld.service
       drop-ins:
-        - name: 50-network-config.conf
+        - name: "30-certificates.conf"
           content: |
             [Service]
-            ExecStartPre=/usr/bin/etcdctl set /coreos.com/network/config '{ "Network": "10.1.0.0/16" }'
+            # client environment variables
+            Environment=ETCD_CA_FILE=/home/core/ca.pem
+            Environment=ETCD_CERT_FILE=/home/core/coreos.pem
+            Environment=ETCD_KEY_FILE=/home/core/coreos-key.pem
+            # peer environment variables
+            Environment=ETCD_PEER_CA_FILE=/home/core/ca.pem
+            Environment=ETCD_PEER_CERT_FILE=/home/core/coreos.pem
+            Environment=ETCD_PEER_KEY_FILE=/home/core/coreos-key.pem
+    - name: "fleet.service"
+      command: "start"
+    - name: "flanneld.service"
+      command: start
+    - name: "locksmith.service"
+      command: start
+    - name: iptables-restore.service
+      enable: true
       command: start
 
-ssh_authorized_keys:
-  - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDp06/jzDQHynEt7swNMdKxjxUZgUdCzJTGGY3xE7aAF0ntVkRP/vMH7aEjeOeTy4lM6maujiFMLFU18V/L96bLb3GDSHeQkXp2tU/2EGGevzfVbkMgOMmn7pSIo8J/vbiY9hIYqkEJ7BUXMJjiDt4eEGiUwjrsA+pNIIgTBZ+PnqLjFW7Hx7fWhAI3H22PiLFbVHeUPvUWvvULYFsRdFjzKolsqDuRl74ldNVKJRr9wROw9vPbxCCTQxZG0tQC1BKubeGz4FfI7bp/E8NP/kc5hMMzIbDZSPKfE38s7MepTePLbb85MGXWqSAjIWt0NLJRuDS83TeQbvkAY+gg08DUpc/uMW/jdG0mLktdbobmDJfTZOVKT3iCc9kfCrxYB0cmM8ZQ8aM+uVCt4tTEW/pU8gERnLMYuv72ItPyyGO7db4QN86Jddtv75GvIBVSZpQZ0BBMpju2mLH+cw2Q9oTLX7Gv9ArRvV+uKo0lBqrcrc6usex3F4MCgdv7L1y5PFqX7NYdTB4b82OL0MKboBDHV58sxmZia23P9yBPtG9YDdrdTKKE2EJrStXIa7e761sJ6t5HImDJBwguONGkwEcjaBS7ALv+QAAlh8djcDapmaWyYYJ5WYaFiANMcsqiewj8FCaPjsFL6ROzFubNNjPUS2jnnN/NxUNF1gVNc2r6TQ== gabriel+slatebox@sullice.com"
-
-users:
-  - name: "gabe"
-    ssh-authorized-keys:
-      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDp06/jzDQHynEt7swNMdKxjxUZgUdCzJTGGY3xE7aAF0ntVkRP/vMH7aEjeOeTy4lM6maujiFMLFU18V/L96bLb3GDSHeQkXp2tU/2EGGevzfVbkMgOMmn7pSIo8J/vbiY9hIYqkEJ7BUXMJjiDt4eEGiUwjrsA+pNIIgTBZ+PnqLjFW7Hx7fWhAI3H22PiLFbVHeUPvUWvvULYFsRdFjzKolsqDuRl74ldNVKJRr9wROw9vPbxCCTQxZG0tQC1BKubeGz4FfI7bp/E8NP/kc5hMMzIbDZSPKfE38s7MepTePLbb85MGXWqSAjIWt0NLJRuDS83TeQbvkAY+gg08DUpc/uMW/jdG0mLktdbobmDJfTZOVKT3iCc9kfCrxYB0cmM8ZQ8aM+uVCt4tTEW/pU8gERnLMYuv72ItPyyGO7db4QN86Jddtv75GvIBVSZpQZ0BBMpju2mLH+cw2Q9oTLX7Gv9ArRvV+uKo0lBqrcrc6usex3F4MCgdv7L1y5PFqX7NYdTB4b82OL0MKboBDHV58sxmZia23P9yBPtG9YDdrdTKKE2EJrStXIa7e761sJ6t5HImDJBwguONGkwEcjaBS7ALv+QAAlh8djcDapmaWyYYJ5WYaFiANMcsqiewj8FCaPjsFL6ROzFubNNjPUS2jnnN/NxUNF1gVNc2r6TQ== gabriel+slatebox@sullice.com"
-    sudo: "ALL=(ALL) NOPASSWD:ALL"
-    groups:
-      - "sudo"
-    shell: "/bin/bash"
-
 write_files:
-  - path: "/home/gabe/.bashrc"
+  - path: "/home/core/.bashrc"
     permissions: "0700"
-    owner: "gabe:gabe"
+    owner: "core:core"
     content: |
       set -o vi
       alias ll="ls -lah"
       alias ..="cd .."
       alias ...="cd ../.."
+      export ETCDCTL_ENDPOINT=https://$private_ipv4:4001
+      export ETCDCTL_CA_FILE=/home/core/ca.pem
+      export ETCDCTL_CERT_FILE=/home/core/coreos.pem
+      export ETCDCTL_KEY_FILE=/home/core/coreos-key.pem
+  - path: "/home/core/private-ip.txt"
+    permissions: "0640"
+    owner: "core:core"
+    content: |
+      $private_ipv4
